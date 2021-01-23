@@ -13,6 +13,38 @@ const lensPathWithDefault = (lensPath, theDefault) => {
     return R.lens(getter, setter)
 }
 
+const fetchText = async (resource, init) => {
+    try {
+        const response = await fetch(resource, init)
+        const text = await response.text()
+        return text
+    } catch (error) {
+        const messageLines = []
+        messageLines.push(`Unable to fetch resource '${resource}'`)
+        if (init) {
+            messageLines.push(`options = ${JSON.stringify(init)}`)
+        }
+        messageLines.push(`message = ${error.message}`)
+        throw new Error(R.join('\n', messageLines))
+    }
+}
+
+const fetchJson = async (resource, init) => {
+    const text = await fetchText(resource, init)
+    try {
+        return JSON.parse(text)
+    } catch (error) {
+        const messageLines = []
+        messageLines.push(`Unable to json from text '${text}'`)
+        messageLines.push(`resource = ${resource}`)
+        if (init) {
+            messageLines.push(`options = ${JSON.stringify(init)}`)
+        }
+        messageLines.push(`message = ${error.message}`)
+        throw new Error(R.join('\n', messageLines))
+    }
+}
+
 const FETCH_PAGE_REQUEST = 'NAVIGATION/FETCH_PAGE_REQUEST'
 const FETCH_PAGE_SUCCESS = 'NAVIGATION/FETCH_PAGE_SUCCESS'
 const REDIRECT = 'NAVIGATION/REDIRECT'
@@ -30,38 +62,44 @@ const DELETE_TASKS_REQUEST = 'TASK/DELETE_TASKS_REQUEST'
 const FETCH_SUMMARY_REQUEST = 'SUMMARY/FETCH_SUMMARY_REQUEST'
 const FETCH_SUMMARY_SUCCESS = 'SUMMARY/FETCH_SUMMARY_SUCCESS'
 
-const fetchPageRequest = () => ({type: FETCH_PAGE_REQUEST})
-const fetchPageSuccess = page => ({type: FETCH_PAGE_SUCCESS, page})
-const redirectRequest = uri => ({type: REDIRECT, uri})
-const fetchProfilesRequest = () => ({type: FETCH_PROFILES_REQUEST})
-const addProfileRequest = name => ({type: ADD_PROFILE_REQUEST, name})
-const fetchProfilesSuccess = profiles => ({type: FETCH_PROFILES_SUCCESS, profiles})
-const profileNameChanged = name => ({type: PROFILE_NAME_CHANGED, name})
-const deleteProfileRequest = id => ({type: DELETE_PROFILE_REQUEST, id})
-const fetchTasksRequest = () => ({type: FETCH_TASKS_REQUEST})
-const fetchTasksSuccess = ({profile, tasks}) => ({type: FETCH_TASKS_SUCCESS, profile, tasks})
-const taskNameChanged = name => ({type: TASK_NAME_CHANGED, name})
-const addTaskRequest = task => ({type: ADD_TASK_REQUEST, task})
-const updateTaskRequest = task => ({type: UPDATE_TASK_REQUEST, task})
-const deleteTasksRequest = taskIds => ({type: DELETE_TASKS_REQUEST, taskIds})
-const fetchSummaryRequest = () => ({type: FETCH_SUMMARY_REQUEST})
-const fetchSummarySuccess = ({profileCount, taskCount}) => ({
+const eventFetchPageRequest = () => ({type: FETCH_PAGE_REQUEST})
+const eventFetchPageSuccess = page => ({type: FETCH_PAGE_SUCCESS, page})
+const eventRedirectRequest = uri => ({type: REDIRECT, uri})
+const eventFetchProfilesRequest = () => ({type: FETCH_PROFILES_REQUEST})
+const eventAddProfileRequest = name => ({type: ADD_PROFILE_REQUEST, name})
+const eventFetchProfilesSuccess = profiles => ({type: FETCH_PROFILES_SUCCESS, profiles})
+const eventProfileNameChanged = name => ({type: PROFILE_NAME_CHANGED, name})
+const eventDeleteProfileRequest = id => ({type: DELETE_PROFILE_REQUEST, id})
+const eventFetchTasksRequest = () => ({type: FETCH_TASKS_REQUEST})
+const eventFetchTasksSuccess = ({profile, tasks}) => ({type: FETCH_TASKS_SUCCESS, profile, tasks})
+const eventTaskNameChanged = name => ({type: TASK_NAME_CHANGED, name})
+const eventAddTaskRequest = task => ({type: ADD_TASK_REQUEST, task})
+const eventUpdateTaskRequest = task => ({type: UPDATE_TASK_REQUEST, task})
+const eventDeleteTasksRequest = taskIds => ({type: DELETE_TASKS_REQUEST, taskIds})
+const eventFetchSummaryRequest = () => ({type: FETCH_SUMMARY_REQUEST})
+const eventFetchSummarySuccess = ({profileCount, taskCount}) => ({
     type: FETCH_SUMMARY_SUCCESS,
     profileCount,
     taskCount
 })
 
-const pageLens = lensPathWithDefault(['navigation', 'page'], '')
+const lensPage = lensPathWithDefault(['navigation', 'page'], '')
+const lensProfileCount = lensPathWithDefault(['summary', 'profileCount'], 0)
+const lensTaskCount = lensPathWithDefault(['summary', 'taskCount'], 0)
 
-const fetchPage = (state, event) => R.set(pageLens, event.page, state)
-
+const reduceFetchPageSuccess = (state, event) => R.set(lensPage, event.page, state)
+const reduceFetchSummarySuccess = (state, event) => R.pipe(
+    R.set(lensProfileCount, event.profileCount),
+    R.set(lensTaskCount, event.taskCount))(state)
 
 const sagaMiddleware = createSagaMiddleware()
 const composeEnhancers = window.__REDUX_DEVTOOLS_EXTENSION_COMPOSE__ || compose;
 const reducer = (state, event) => {
     switch (event.type) {
         case FETCH_PAGE_SUCCESS :
-            return fetchPage(state, event)
+            return reduceFetchPageSuccess(state, event)
+        case FETCH_SUMMARY_SUCCESS:
+            return reduceFetchSummarySuccess(state, event)
         default:
             return state
     }
@@ -73,7 +111,6 @@ const store = createStore(
     composeEnhancers(applyMiddleware(sagaMiddleware))
 )
 const history = createBrowserHistory()
-
 
 const handleRedirect = function* (event) {
     const uri = event.uri
@@ -87,31 +124,54 @@ const taskUriPattern = /^\/task\/([^/]*)/
 const handleFetchPageRequest = function* () {
     const uri = history.location.pathname
     if (profileUriPattern.test(uri)) {
-        yield put(fetchPageSuccess("profile"))
-        yield put(fetchProfilesRequest())
-        yield put(fetchSummaryRequest())
+        yield put(eventFetchPageSuccess("profile"))
+        yield put(eventFetchProfilesRequest())
+        yield put(eventFetchSummaryRequest())
     } else if (taskUriPattern.test(uri)) {
-        yield put(fetchPageSuccess("task"))
-        yield put(fetchTasksRequest())
-        yield put(fetchSummaryRequest())
+        yield put(eventFetchPageSuccess("task"))
+        yield put(eventFetchTasksRequest())
+        yield put(eventFetchSummaryRequest())
     } else {
-        yield put(redirectRequest('/profile'))
+        yield put(eventRedirectRequest('/profile'))
     }
+}
+
+const handleFetchSummaryRequest = function* () {
+    const profiles = yield fetchJson('/proxy/profile')
+    const profileCount = profiles.length
+    const tasks = yield fetchJson('/proxy/task')
+    const taskCount = tasks.length
+    yield put(eventFetchSummarySuccess({profileCount, taskCount}))
 }
 
 const saga = function* () {
     yield takeEvery(FETCH_PAGE_REQUEST, handleFetchPageRequest)
+    yield takeEvery(FETCH_SUMMARY_REQUEST, handleFetchSummaryRequest)
     yield takeEvery(REDIRECT, handleRedirect)
 }
 
 sagaMiddleware.run(saga)
-store.dispatch(fetchPageRequest())
+store.dispatch(eventFetchPageRequest())
 
 const PageNotFound = ({page}) => <h1>{`Page '${page}' not found`}</h1>
 
 const Profile = () => <div>Profile Component</div>
 const Task = () => <div>Task Component</div>
-const Summary = () => <div>Summary Component</div>
+
+const Summary = ({profileCount, taskCount, errors}) =>
+    <div className={"Summary"}>
+        <span>Number of profiles = {profileCount}</span>
+        <span>Number of tasks across all profiles = {taskCount}</span>
+    </div>
+
+const mapSummaryStateToProps = state => ({
+    profileCount: R.view(lensProfileCount, state),
+    taskCount: R.view(lensTaskCount, state)
+})
+
+const mapSummaryDispatchToProps = dispatch => ({})
+
+const ConnectedSummary = connect(mapSummaryStateToProps, mapSummaryDispatchToProps)(Summary)
 
 const Navigation = ({page}) => {
     const pageMap = {
@@ -121,12 +181,12 @@ const Navigation = ({page}) => {
     const Component = pageMap[page] || PageNotFound
     return <div className={'Navigation'}>
         <Component/>
-        <Summary/>
+        <ConnectedSummary/>
     </div>
 }
 
 const mapNavigationStateToProps = state => ({
-    page: R.view(pageLens, state)
+    page: R.view(lensPage, state)
 })
 
 const mapNavigationDispatchToProps = dispatch => ({})
