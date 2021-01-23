@@ -2,8 +2,8 @@ import './App.css';
 import {connect, Provider} from 'react-redux'
 import createSagaMiddleware from 'redux-saga'
 import {applyMiddleware, compose, createStore} from 'redux'
-import {createBrowserHistory} from "history";
-import {all, put, takeEvery} from "redux-saga/effects";
+import {createBrowserHistory} from 'history';
+import {all, put, takeEvery} from 'redux-saga/effects';
 import * as R from 'ramda'
 
 // environment
@@ -125,11 +125,11 @@ const reduceFetchPageSuccess = (state, event) => R.set(lensPage, event.page, sta
 const handleFetchPageRequest = function* () {
     const uri = history.location.pathname
     if (profileUriPattern.test(uri)) {
-        yield put(fetchPageSuccess("profile"))
+        yield put(fetchPageSuccess('profile'))
         yield put(fetchProfilesRequest())
         yield put(fetchSummaryRequest())
     } else if (taskUriPattern.test(uri)) {
-        yield put(fetchPageSuccess("task"))
+        yield put(fetchPageSuccess('task'))
         yield put(fetchTasksRequest())
         yield put(fetchSummaryRequest())
     } else {
@@ -379,7 +379,7 @@ const ConnectedTask = connect(mapTaskStateToProps, mapTaskDispatchToProps)(Task)
 
 // summary - view
 const Summary = ({profileCount, taskCount}) =>
-    <div className={"Summary"}>
+    <div className={'Summary'}>
         <span>Number of profiles = {profileCount}</span>
         <span>Number of tasks across all profiles = {taskCount}</span>
     </div>
