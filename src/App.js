@@ -115,8 +115,6 @@ const reduceFetchSummarySuccess = (state, event) => R.pipe(
     R.set(lensProfileCount, event.profileCount),
     R.set(lensTaskCount, event.taskCount))(state)
 
-const sagaMiddleware = createSagaMiddleware()
-const composeEnhancers = window.__REDUX_DEVTOOLS_EXTENSION_COMPOSE__ || compose;
 const reducer = (state, event) => {
     switch (event.type) {
         case FETCH_PAGE_SUCCESS :
@@ -438,6 +436,8 @@ const mapNavigationDispatchToProps = {}
 
 const ConnectedNavigation = connect(mapNavigationStateToProps, mapNavigationDispatchToProps)(Navigation)
 
+const sagaMiddleware = createSagaMiddleware()
+const composeEnhancers = window.__REDUX_DEVTOOLS_EXTENSION_COMPOSE__ || compose;
 const store = createStore(
     reducer,
     {},
