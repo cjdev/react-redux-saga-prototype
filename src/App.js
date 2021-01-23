@@ -94,12 +94,23 @@ const fetchSummarySuccess = ({profileCount, taskCount}) => ({
 const lensPage = lensPathWithDefault(['navigation', 'page'], '')
 const lensProfiles = lensPathWithDefault(['profile', 'profiles'], [])
 const lensProfileName = lensPathWithDefault(['profile', 'profileName'], '')
+const lensTaskProfile = lensPathWithDefault(['task', 'profile'], {id: 'null-profile-id', name: 'null-profile-name'})
+const lensTasks = lensPathWithDefault(['task', 'tasks'], [])
+const lensTaskName = lensPathWithDefault(['task', 'taskName'], '')
 const lensProfileCount = lensPathWithDefault(['summary', 'profileCount'], 0)
 const lensTaskCount = lensPathWithDefault(['summary', 'taskCount'], 0)
 
+const reduceFetchPageSuccess = (state, event) => R.set(lensPage, event.page, state)
 const reduceFetchProfilesSuccess = (state, event) => R.set(lensProfiles, event.profiles, state)
 const reduceProfileNameChanged = (state, event) => R.set(lensProfileName, event.name, state)
-const reduceFetchPageSuccess = (state, event) => R.set(lensPage, event.page, state)
+const reduceFetchTasksSuccess = (state, event) => R.pipe(
+    R.set(lensTaskProfile, event.profile),
+    R.set(lensTasks, event.tasks)
+)(state)
+const reduceTaskNameChanged = (state, event) => {
+    const result = R.set(lensTaskName, event.name, state)
+    return result
+}
 const reduceFetchSummarySuccess = (state, event) => R.pipe(
     R.set(lensProfileCount, event.profileCount),
     R.set(lensTaskCount, event.taskCount))(state)
@@ -110,12 +121,16 @@ const reducer = (state, event) => {
     switch (event.type) {
         case FETCH_PAGE_SUCCESS :
             return reduceFetchPageSuccess(state, event)
-        case FETCH_SUMMARY_SUCCESS:
-            return reduceFetchSummarySuccess(state, event)
         case FETCH_PROFILES_SUCCESS:
             return reduceFetchProfilesSuccess(state, event)
         case PROFILE_NAME_CHANGED:
             return reduceProfileNameChanged(state, event)
+        case FETCH_TASKS_SUCCESS:
+            return reduceFetchTasksSuccess(state, event)
+        case TASK_NAME_CHANGED:
+            return reduceTaskNameChanged(state, event)
+        case FETCH_SUMMARY_SUCCESS:
+            return reduceFetchSummarySuccess(state, event)
         default:
             return state
     }
@@ -174,6 +189,42 @@ const handleDeleteProfileRequest = function* (event) {
     yield put(fetchSummaryRequest())
 }
 
+const handleFetchTasksRequest = function* (event) {
+    const uri = history.location.pathname
+    const matchResult = uri.match(taskUriPattern)
+    const profileId = matchResult[1]
+    const profile = yield fetchJson(`/proxy/profile/${profileId}`)
+    const allTasks = yield fetchJson('/proxy/task')
+    const matchingProfileId = task => task.profileId === profileId
+    const tasks = R.filter(matchingProfileId, allTasks)
+    yield put(fetchTasksSuccess({profile, tasks}))
+}
+
+const handleAddTaskRequest = function* (event) {
+    const task = event.task
+    const body = JSON.stringify(task)
+    yield fetchText(`/proxy/task`, {method: 'POST', body})
+    yield put(taskNameChanged(''))
+    yield put(fetchTasksRequest())
+    yield put(fetchSummaryRequest())
+}
+
+const handleUpdateTaskRequest = function* (event) {
+    const task = event.task
+    const body = JSON.stringify(task)
+    yield fetchText(`/proxy/task/${task.id}`, {method: 'POST', body})
+    yield put(fetchTasksRequest())
+}
+
+const handleDeleteTasksRequest = function* (event) {
+    const taskIds = event.taskIds
+    const createDeleteTaskFunction = taskId => fetchText(`/proxy/task/${taskId}`, {method: 'DELETE'})
+    const deleteTaskFunctions = R.map(createDeleteTaskFunction, taskIds)
+    yield all(deleteTaskFunctions)
+    yield put(fetchTasksRequest())
+    yield put(fetchSummaryRequest())
+}
+
 const handleFetchSummaryRequest = function* () {
     const profiles = yield fetchJson('/proxy/profile')
     const profileCount = profiles.length
@@ -187,6 +238,10 @@ const saga = function* () {
     yield takeEvery(FETCH_PROFILES_REQUEST, handleFetchProfilesRequest)
     yield takeEvery(ADD_PROFILE_REQUEST, handleAddProfileRequest)
     yield takeEvery(DELETE_PROFILE_REQUEST, handleDeleteProfileRequest)
+    yield takeEvery(FETCH_TASKS_REQUEST, handleFetchTasksRequest)
+    yield takeEvery(ADD_TASK_REQUEST, handleAddTaskRequest)
+    yield takeEvery(UPDATE_TASK_REQUEST, handleUpdateTaskRequest)
+    yield takeEvery(DELETE_TASKS_REQUEST, handleDeleteTasksRequest)
     yield takeEvery(FETCH_SUMMARY_REQUEST, handleFetchSummaryRequest)
     yield takeEvery(REDIRECT, handleRedirect)
 }
@@ -304,7 +359,6 @@ const Task = ({
                   profile,
                   tasks,
                   taskName,
-                  errors,
                   taskNameChanged,
                   addTaskRequest,
                   updateTaskRequest,
@@ -334,6 +388,21 @@ const Task = ({
     </div>
 }
 
+const mapTaskStateToProps = state => ({
+    profile: R.view(lensTaskProfile, state),
+    tasks: R.view(lensTasks, state),
+    taskName: R.view(lensTaskName, state)
+})
+
+const mapTaskDispatchToProps = {
+    taskNameChanged,
+    addTaskRequest,
+    updateTaskRequest,
+    deleteTasksRequest
+}
+
+const ConnectedTask = connect(mapTaskStateToProps, mapTaskDispatchToProps)(Task)
+
 const Summary = ({profileCount, taskCount}) =>
     <div className={"Summary"}>
         <span>Number of profiles = {profileCount}</span>
@@ -352,7 +421,7 @@ const ConnectedSummary = connect(mapSummaryStateToProps, mapSummaryDispatchToPro
 const Navigation = ({page}) => {
     const pageMap = {
         profile: ConnectedProfile,
-        task: Task
+        task: ConnectedTask
     }
     const Component = pageMap[page] || PageNotFound
     return <div className={'Navigation'}>
